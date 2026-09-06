@@ -16,9 +16,16 @@ from .exporter import (
     save_companies_to_csv,
     save_companies_to_json,
     save_to_csv,
-    save_to_json,
 )
 from .scraper import NaukriScraper
+
+# Ensure UTF-8 output on Windows consoles
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -102,6 +109,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Output filepath (default: naukri_companies.csv)",
     )
     parser.add_argument(
+        "--inc42-only",
+        action="store_true",
+        help="Verify companies strictly using Inc42 only (bypasses AmbitionBox, DuckDuckGo generic search, and Clearbit)",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable detailed debug logs",
@@ -122,6 +134,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"[*] Target Custom URL : {args.url}")
         print(f"[*] Search Pages      : {pages_str}")
         print(f"[*] Target Max Jobs   : {max_jobs_str}")
+        print(f"[*] Verification Mode : {'Inc42 ONLY' if args.inc42_only else 'Inc42 + AmbitionBox + DDGS + Clearbit'}")
         print(f"[*] Output File       : {args.output}\n" + "-" * 60)
 
         browser_scraper = NaukriBrowserScraper()
@@ -129,6 +142,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             search_url=args.url,
             max_pages=args.pages,
             max_jobs=args.max_jobs,
+            inc42_only=args.inc42_only,
         )
     else:
         time_filter_str = "All Time"
@@ -175,7 +189,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print(f"[+] Company Website Rate   : {comp_web_count:,}/{len(companies_data):,} ({pct_comp_web:.1f}% unique companies resolved)")
 
-    # Save single clean companies file
+    # Save both individual jobs and aggregated companies
+    out_dir = Path(args.output).parent
+    jobs_out_path = out_dir / "naukri_jobs.csv" if out_dir != Path(".") else Path("naukri_jobs.csv")
+    save_to_csv(jobs, str(jobs_out_path))
+
     if args.output.endswith(".json"):
         out_path = save_companies_to_json(companies_data, args.output)
     else:
@@ -185,7 +203,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("[!] No companies found with current filters.")
         return 0
 
-    print(f"\n[+] Results saved to: {out_path.resolve()}\n")
+    print(f"\n[+] Enriched Jobs saved to      : {jobs_out_path.resolve()}")
+    print(f"[+] Company Profiles saved to   : {out_path.resolve()}\n")
 
     # Display preview of top 5 companies
     print("Top Hiring Companies Preview:")

@@ -25,11 +25,11 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r naukri_scraper/requirements.txt
+          pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
       - name: Run AmbitionBox Test
         run: |
           TARGET_URL="${{ github.event.inputs.url }}"
           echo "Testing target: $TARGET_URL"
-          python test_ambitionbox.py --url "$TARGET_URL"
+          python tests/test_ambitionbox.py --url "$TARGET_URL"

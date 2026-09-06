@@ -1,0 +1,47 @@
+name: Test Inc42 Extraction
+
+on:
+  workflow_dispatch:
+    inputs:
+      company:
+        description: 'Company Name to enrich via Inc42 (e.g. Tigi HR, Zepto, CRED, Razorpay)'
+        required: false
+        default: 'Tigi HR'
+      url:
+        description: 'Direct Inc42 Company URL (optional, e.g. https://inc42.com/company/tigi-hr/)'
+        required: false
+        default: ''
+
+jobs:
+  test-inc42:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Inc42 Extraction Test
+        run: |
+          COMPANY="${{ github.event.inputs.company }}"
+          URL="${{ github.event.inputs.url }}"
+          if [ -n "$URL" ]; then
+            echo "Testing Direct URL: $URL"
+            python tests/test_inc42.py --url "$URL"
+          elif [ -n "$COMPANY" ]; then
+            echo "Testing Company: $COMPANY"
+            python tests/test_inc42.py --company "$COMPANY"
+          else
+            echo "Running Benchmark Suite"
+            python tests/test_inc42.py --test-suite
+          fi

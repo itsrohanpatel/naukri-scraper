@@ -17,7 +17,6 @@ import html
 import json
 import logging
 import re
-import sys
 import urllib.parse
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -213,11 +212,15 @@ async def enrich_company_websites_in_browser(
     context: BrowserContext,
     num_tabs: int = 6,
     max_enrichment_seconds: float = 120.0,
+    inc42_only: bool = False,
 ) -> None:
-    """Pure dynamic live enrichment with three-tier strategy:
-    1. Primary (Tier 1): AmbitionBox live extraction via concurrent browser tabs.
-    2. Fallback 1 (Tier 2): DuckDuckGo Search (ddgs) for unlisted/missing companies.
-    3. Fallback 2 (Tier 3): Clearbit Autocomplete API for remaining missing companies.
+    """Pure dynamic live enrichment with multi-tier strategy:
+    - If inc42_only is True: Verifies companies exclusively through Inc42 (direct slugs + DDGS search fallback).
+    - Otherwise (Default):
+        1. Inc42 Fast Async Corporate & Startup Enrichment (Tier 0).
+        2. AmbitionBox live extraction via concurrent browser tabs (Tier 1).
+        3. DuckDuckGo Search (ddgs) for unlisted/missing companies (Tier 2).
+        4. Clearbit Autocomplete API for remaining missing companies (Tier 3).
     - 100% pure dynamic, 0% hardcoding.
     """
     url_to_comp: Dict[str, str] = {}
@@ -233,131 +236,173 @@ async def enrich_company_websites_in_browser(
 
     unique_ab_items = list(url_to_comp.items())
     total_ab = len(unique_ab_items)
-
     total_companies = len(all_company_names)
-    print(f"\n[*] Pure dynamic live enrichment (AmbitionBox Tier 1 + DuckDuckGo Tier 2 + Clearbit Tier 3)...", flush=True)
-    logger.info("Enriching %d unique companies (%d have AmbitionBox profiles)...", total_companies, total_ab)
 
     completed = 0
     url_to_website: Dict[str, str] = {}
     comp_to_website: Dict[str, str] = {}
+    comp_to_metadata: Dict[str, Dict[str, Any]] = {}
     remaining_to_fetch: List[tuple[str, str]] = []
 
-    # Check runtime cache first
-    for ab_url, comp_name in unique_ab_items:
-        cached_w = _COMPANY_WEBSITE_CACHE.get(ab_url)
-        if cached_w is not None:
-            url_to_website[ab_url] = cached_w
-            if cached_w:
-                comp_to_website[comp_name] = cached_w
-            completed += 1
-        else:
-            remaining_to_fetch.append((ab_url, comp_name))
+    if inc42_only:
+        print("\n[*] Pure dynamic live enrichment (STRICT: Inc42 Only Verification)...", flush=True)
+        logger.info("Enriching %d unique companies strictly with Inc42...", total_companies)
+        try:
+            from .inc42_scraper import batch_enrich_inc42
+            print(f"[*] Querying Inc42 (Direct Slugs + site:inc42.com Search) for {total_companies} companies...", flush=True)
+            inc42_results = await batch_enrich_inc42(list(all_company_names), concurrency=8, use_ddgs_fallback=True)
+            for cname, idata in inc42_results.items():
+                if idata.get("company_website"):
+                    comp_to_website[cname] = idata["company_website"]
+                comp_to_metadata[cname] = idata
+                stage = idata.get("company_stage") or "N/A"
+                hq = idata.get("headquarters") or "N/A"
+                web = idata.get("company_website") or "Profile only"
+                print(f"  [+] Inc42 Verified: {cname} -> {web} | Stage: {stage} | HQ: {hq}", flush=True)
 
-    # --- Phase 1 (Tier 1): AmbitionBox Concurrent Extraction ---
-    if remaining_to_fetch:
-        queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
-        for item in remaining_to_fetch:
-            await queue.put(item)
+            print(f"  [+] Total Inc42 verified companies: {len(comp_to_metadata)}/{total_companies}", flush=True)
+        except Exception as e:
+            logger.error("Inc42 enrichment error: %s", e)
 
-        async def worker_tab(tab_id: int) -> None:
-            nonlocal completed
-            page: Optional[Page] = None
-            try:
-                page = await context.new_page()
+    else:
+        print("\n[*] Pure dynamic live enrichment (Inc42 Tier 0 + AmbitionBox Tier 1 + DuckDuckGo Tier 2 + Clearbit Tier 3)...", flush=True)
+        logger.info("Enriching %d unique companies (%d have AmbitionBox profiles)...", total_companies, total_ab)
 
-                async def route_handler(route):
-                    try:
-                        if route.request.resource_type in ["image", "media", "font"]:
-                            await route.abort()
-                        else:
-                            await route.continue_()
-                    except Exception:
-                        pass
+        # --- Phase 0 (Tier 0): Inc42 Fast Async Corporate & Startup Enrichment ---
+        try:
+            from .inc42_scraper import batch_enrich_inc42
+            print(f"[*] Querying Inc42 (Tier 0 fast HTTP) for {total_companies} companies...", flush=True)
+            inc42_results = await batch_enrich_inc42(list(all_company_names), concurrency=10, use_ddgs_fallback=False)
+            inc42_hits = 0
+            for cname, idata in inc42_results.items():
+                if idata.get("company_website"):
+                    comp_to_website[cname] = idata["company_website"]
+                    comp_to_metadata[cname] = idata
+                    inc42_hits += 1
+            if inc42_hits:
+                print(f"  [+] Inc42 enriched {inc42_hits}/{total_companies} companies with websites & startup profiles!", flush=True)
+        except Exception as e:
+            logger.debug("Inc42 enrichment error: %s", e)
 
-                await page.route("**/*", route_handler)
-
-                while not queue.empty():
-                    try:
-                        ab_url, comp_name = queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        break
-
-                    website, is_detected = await dynamic_extract_ambitionbox(page, ab_url)
-                    _COMPANY_WEBSITE_CACHE[ab_url] = website
-                    url_to_website[ab_url] = website
-                    if website:
-                        comp_to_website[comp_name] = website
+        # Check runtime cache first
+        for ab_url, comp_name in unique_ab_items:
+            cached_w = _COMPANY_WEBSITE_CACHE.get(ab_url)
+            if cached_w is not None:
+                url_to_website[ab_url] = cached_w
+                if cached_w and not comp_to_website.get(comp_name):
+                    comp_to_website[comp_name] = cached_w
+                completed += 1
+            else:
+                # Only need AmbitionBox browser tabs if not already found on Inc42
+                if not comp_to_website.get(comp_name):
+                    remaining_to_fetch.append((ab_url, comp_name))
+                else:
                     completed += 1
 
-                    if website:
-                        status_str = f"{website} (AmbitionBox)"
-                    elif is_detected:
-                        status_str = "[Not listed on AmbitionBox -> checking DuckDuckGo...]"
-                    else:
-                        status_str = "[Unreachable on AmbitionBox -> checking DuckDuckGo...]"
+        # --- Phase 1 (Tier 1): AmbitionBox Concurrent Extraction ---
+        if remaining_to_fetch:
+            queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+            for item in remaining_to_fetch:
+                await queue.put(item)
 
-                    print(f"[{completed}/{total_companies}] {comp_name} -> {status_str}", flush=True)
-                    queue.task_done()
-                    await asyncio.sleep(0.05)
+            async def worker_tab(tab_id: int) -> None:
+                nonlocal completed
+                page: Optional[Page] = None
+                try:
+                    page = await context.new_page()
 
+                    async def route_handler(route):
+                        try:
+                            if route.request.resource_type in ["image", "media", "font"]:
+                                await route.abort()
+                            else:
+                                await route.continue_()
+                        except Exception:
+                            pass
+
+                    await page.route("**/*", route_handler)
+
+                    while not queue.empty():
+                        try:
+                            ab_url, comp_name = queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+
+                        website, is_detected = await dynamic_extract_ambitionbox(page, ab_url)
+                        _COMPANY_WEBSITE_CACHE[ab_url] = website
+                        url_to_website[ab_url] = website
+                        if website:
+                            comp_to_website[comp_name] = website
+                        completed += 1
+
+                        if website:
+                            status_str = f"{website} (AmbitionBox)"
+                        elif is_detected:
+                            status_str = "[Not listed on AmbitionBox -> checking DuckDuckGo...]"
+                        else:
+                            status_str = "[Unreachable on AmbitionBox -> checking DuckDuckGo...]"
+
+                        print(f"[{completed}/{total_companies}] {comp_name} -> {status_str}", flush=True)
+                        queue.task_done()
+                        await asyncio.sleep(0.05)
+
+                except Exception:
+                    pass
+                finally:
+                    if page:
+                        try:
+                            await page.unroute("**/*")
+                            await asyncio.wait_for(page.close(), timeout=3.0)
+                        except Exception:
+                            pass
+
+            actual_tabs = min(num_tabs, len(remaining_to_fetch))
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*(worker_tab(i) for i in range(actual_tabs))),
+                    timeout=max_enrichment_seconds,
+                )
+            except asyncio.TimeoutError:
+                print(f"[!] Reached max AmbitionBox time limit ({max_enrichment_seconds}s); continuing to fallbacks...", flush=True)
+
+        # --- Phase 2 (Tier 2): DuckDuckGo Search Fallback ---
+        unresolved_companies = [c for c in all_company_names if not comp_to_website.get(c)]
+        if unresolved_companies:
+            print(f"\n[*] Querying DuckDuckGo Search (Tier 2 fallback) for {len(unresolved_companies)} companies...", flush=True)
+            ddgs_semaphore = asyncio.Semaphore(8)
+
+            async def run_ddgs_pool():
+                tasks = [dynamic_extract_ddgs(c, ddgs_semaphore) for c in unresolved_companies]
+                for coro in asyncio.as_completed(tasks):
+                    cname, ddgs_web = await coro
+                    if ddgs_web and not comp_to_website.get(cname):
+                        comp_to_website[cname] = ddgs_web
+                        print(f"  [+] DuckDuckGo Website Found: {cname} -> {ddgs_web}", flush=True)
+
+            try:
+                await asyncio.wait_for(run_ddgs_pool(), timeout=45.0)
+            except asyncio.TimeoutError:
+                print("[!] Reached DuckDuckGo time limit (45s); proceeding to Clearbit fallback...", flush=True)
+
+        # --- Phase 3 (Tier 3): Clearbit Autocomplete API Fallback ---
+        still_unresolved = [c for c in all_company_names if not comp_to_website.get(c)]
+        if still_unresolved:
+            print(f"\n[*] Querying Clearbit Autocomplete API (Tier 3 fallback) for {len(still_unresolved)} companies...", flush=True)
+            cb_semaphore = asyncio.Semaphore(15)
+            try:
+                import httpx
+                limits = httpx.Limits(max_keepalive_connections=20, max_connections=30)
+                async with httpx.AsyncClient(limits=limits, follow_redirects=True) as http_client:
+                    tasks = [dynamic_extract_clearbit(http_client, c, cb_semaphore) for c in still_unresolved]
+                    for coro in asyncio.as_completed(tasks):
+                        cname, clearbit_web = await coro
+                        if clearbit_web and not comp_to_website.get(cname):
+                            comp_to_website[cname] = clearbit_web
+                            print(f"  [+] Clearbit Website Found: {cname} -> {clearbit_web}", flush=True)
             except Exception:
                 pass
-            finally:
-                if page:
-                    try:
-                        await page.unroute("**/*")
-                        await asyncio.wait_for(page.close(), timeout=3.0)
-                    except Exception:
-                        pass
 
-        actual_tabs = min(num_tabs, len(remaining_to_fetch))
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(*(worker_tab(i) for i in range(actual_tabs))),
-                timeout=max_enrichment_seconds,
-            )
-        except asyncio.TimeoutError:
-            print(f"[!] Reached max AmbitionBox time limit ({max_enrichment_seconds}s); continuing to fallbacks...", flush=True)
-
-    # --- Phase 2 (Tier 2): DuckDuckGo Search Fallback ---
-    unresolved_companies = [c for c in all_company_names if not comp_to_website.get(c)]
-    if unresolved_companies:
-        print(f"\n[*] Querying DuckDuckGo Search (Tier 2 fallback) for {len(unresolved_companies)} companies...", flush=True)
-        ddgs_semaphore = asyncio.Semaphore(8)
-
-        async def run_ddgs_pool():
-            tasks = [dynamic_extract_ddgs(c, ddgs_semaphore) for c in unresolved_companies]
-            for coro in asyncio.as_completed(tasks):
-                cname, ddgs_web = await coro
-                if ddgs_web and not comp_to_website.get(cname):
-                    comp_to_website[cname] = ddgs_web
-                    print(f"  [+] DuckDuckGo Website Found: {cname} -> {ddgs_web}", flush=True)
-
-        try:
-            await asyncio.wait_for(run_ddgs_pool(), timeout=45.0)
-        except asyncio.TimeoutError:
-            print("[!] Reached DuckDuckGo time limit (45s); proceeding to Clearbit fallback...", flush=True)
-
-    # --- Phase 3 (Tier 3): Clearbit Autocomplete API Fallback ---
-    still_unresolved = [c for c in all_company_names if not comp_to_website.get(c)]
-    if still_unresolved:
-        print(f"\n[*] Querying Clearbit Autocomplete API (Tier 3 fallback) for {len(still_unresolved)} companies...", flush=True)
-        cb_semaphore = asyncio.Semaphore(15)
-        try:
-            import httpx
-            limits = httpx.Limits(max_keepalive_connections=20, max_connections=30)
-            async with httpx.AsyncClient(limits=limits, follow_redirects=True) as http_client:
-                tasks = [dynamic_extract_clearbit(http_client, c, cb_semaphore) for c in still_unresolved]
-                for coro in asyncio.as_completed(tasks):
-                    cname, clearbit_web = await coro
-                    if clearbit_web and not comp_to_website.get(cname):
-                        comp_to_website[cname] = clearbit_web
-                        print(f"  [+] Clearbit Website Found: {cname} -> {clearbit_web}", flush=True)
-        except Exception:
-            pass
-
-    # Assign enriched websites back to all matching jobs
+    # Assign enriched websites and corporate metadata back to all matching jobs
     found_web_count = 0
     for job in jobs:
         cname = (job.get("company") or "").strip()
@@ -369,6 +414,25 @@ async def enrich_company_websites_in_browser(
         if web:
             found_web_count += 1
 
+        # Populate rich startup & corporate metadata if available
+        meta = comp_to_metadata.get(cname, {})
+        if meta:
+            if meta.get("company_linkedin") and not job.get("company_linkedin"):
+                job["company_linkedin"] = meta["company_linkedin"]
+            if meta.get("founders") and not job.get("founders"):
+                job["founders"] = ", ".join(meta["founders"]) if isinstance(meta["founders"], list) else meta["founders"]
+            if meta.get("founding_year") and not job.get("founding_year"):
+                job["founding_year"] = meta["founding_year"]
+            if meta.get("headquarters") and not job.get("headquarters"):
+                job["headquarters"] = meta["headquarters"]
+            if meta.get("company_stage") and not job.get("company_stage"):
+                job["company_stage"] = meta["company_stage"]
+            if meta.get("total_funding") and not job.get("total_funding"):
+                job["total_funding"] = meta["total_funding"]
+            if meta.get("revenue") and not job.get("revenue"):
+                job["revenue"] = meta["revenue"]
+
+
     total_jobs = len(jobs)
     pct_jobs = (found_web_count / total_jobs * 100.0) if total_jobs > 0 else 0.0
     total_companies = len(all_company_names)
@@ -378,10 +442,10 @@ async def enrich_company_websites_in_browser(
     print(
         f"\n============================================================\n"
         f"[+] ENRICHMENT STATS:\n"
-        f"    • Total Jobs Collected     : {total_jobs:,}\n"
-        f"    • Total Unique Companies   : {total_companies:,}\n"
-        f"    • Company Websites Found   : {companies_found}/{total_companies} ({pct_companies:.1f}% coverage)\n"
-        f"    • Jobs with Valid Website  : {found_web_count}/{total_jobs} ({pct_jobs:.1f}%)\n"
+        f"    - Total Jobs Collected     : {total_jobs:,}\n"
+        f"    - Total Unique Companies   : {total_companies:,}\n"
+        f"    - Company Websites Found   : {companies_found}/{total_companies} ({pct_companies:.1f}% coverage)\n"
+        f"    - Jobs with Valid Website  : {found_web_count}/{total_jobs} ({pct_jobs:.1f}%)\n"
         f"============================================================\n",
         flush=True,
     )
@@ -408,13 +472,14 @@ class NaukriBrowserScraper:
         parsed = urllib.parse.urlparse(base_url)
         query_dict = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
 
+        clean_path = re.sub(r"-\d+$", "", parsed.path)
+        new_path = f"{clean_path}-{page_num}"
+
         if query_dict or "?" in base_url:
             query_dict["pageNo"] = [str(page_num)]
             new_query = urllib.parse.urlencode(query_dict, doseq=True)
-            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, new_query, parsed.fragment))
         else:
-            clean_path = re.sub(r"-\d+$", "", parsed.path)
-            new_path = f"{clean_path}-{page_num}"
             return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment))
 
     async def _scrape_tab_worker(
@@ -640,6 +705,7 @@ class NaukriBrowserScraper:
         search_url: str,
         max_pages: Optional[int] = None,
         max_jobs: Optional[int] = None,
+        inc42_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """Internal asynchronous multi-tab coordinator with auto-pagination support."""
         effective_max_jobs = max_jobs if (max_jobs is not None and max_jobs > 0) else 10000
@@ -720,7 +786,7 @@ class NaukriBrowserScraper:
                 total_available = search_meta.get("total_jobs_on_site")
                 if total_available:
                     target_pages = max(1, (total_available + 19) // 20)
-                    print(f"[*] Auto-detected {total_available:,} jobs → scraping {target_pages} pages to collect all...\n", flush=True)
+                    print(f"[*] Auto-detected {total_available:,} jobs -> scraping {target_pages} pages to collect all...\n", flush=True)
                 else:
                     target_pages = 200
 
@@ -746,7 +812,13 @@ class NaukriBrowserScraper:
                             break
 
             # Pure dynamic website enrichment inside active context
-            await enrich_company_websites_in_browser(all_jobs, context, num_tabs=6, max_enrichment_seconds=120.0)
+            await enrich_company_websites_in_browser(
+                all_jobs,
+                context,
+                num_tabs=6,
+                max_enrichment_seconds=120.0,
+                inc42_only=inc42_only,
+            )
 
             try:
                 await asyncio.wait_for(context.close(), timeout=4.0)
@@ -765,10 +837,11 @@ class NaukriBrowserScraper:
         search_url: str,
         max_pages: Optional[int] = None,
         max_jobs: Optional[int] = None,
+        inc42_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """Synchronous public entry point for CLI and external callers."""
         try:
-            return asyncio.run(self._async_scrape_url(search_url, max_pages, max_jobs))
+            return asyncio.run(self._async_scrape_url(search_url, max_pages, max_jobs, inc42_only=inc42_only))
         except RuntimeError:
             loop = asyncio.get_event_loop()
-            return loop.run_until_complete(self._async_scrape_url(search_url, max_pages, max_jobs))
+            return loop.run_until_complete(self._async_scrape_url(search_url, max_pages, max_jobs, inc42_only=inc42_only))

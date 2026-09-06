@@ -88,6 +88,7 @@ JOB_FIELDS = [
     "title",
     "company",
     "company_website",
+    "company_linkedin",
     "location",
     "experience_text",
     "salary",
@@ -103,11 +104,18 @@ JOB_FIELDS = [
     "max_experience",
     "url",
     "source",
+    "headquarters",
+    "founders",
+    "founding_year",
+    "company_stage",
+    "total_funding",
+    "revenue",
 ]
 
 COMPANY_FIELDS = [
     "company_name",
     "company_website",
+    "company_linkedin",
     "total_jobs_posted",
     "job_titles",
     "naukri_job_urls",
@@ -119,4 +127,11 @@ COMPANY_FIELDS = [
     "company_reviews_count",
     "ambition_box_url",
     "latest_posted_date",
+    "headquarters",
+    "founders",
+    "founding_year",
+    "company_stage",
+    "total_funding",
+    "revenue",
 ]
+

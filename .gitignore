@@ -3,10 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Scraped data & logs
+# Scraped data & logs (in root and data/)
 *.csv
 *.json
 *.log
+data/*
+!data/.gitkeep
 error_screen.png
 
 # Environments & IDEs
@@ -20,6 +22,7 @@ ENV/
 
 # Testing & Coverage
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 

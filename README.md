@@ -1,120 +1,150 @@
-# Naukri.com Fast Job Scraper
+# 🚀 Job Scraper Suite (Naukri & Wellfound)
 
-A high-performance, anti-bot resilient job scraper for [Naukri.com](https://www.naukri.com) with built-in 24-hour time filtering, custom search URL support, and GitHub Actions automation.
+A production-grade, anti-bot resilient scraping and company enrichment system for **[Naukri.com](https://www.naukri.com)** and **[Wellfound.com](https://wellfound.com)** with multi-tier corporate verification via **Inc42**, **AmbitionBox**, and **Clearbit**.
 
----
-
-## 🚀 Key Features
-
-- **Anti-Bot Resilient**: Streams Naukri's official public XML/Gzip sitemaps (including real-time incremental feeds) to discover live job listings without getting blocked by Cloudflare or reCAPTCHA.
-- **Custom Search URL Scraping**: Uses Playwright to scrape any custom filtered search URL (e.g. `jobs-in-india?functionAreaIdGid=4...`) across multiple pages.
-- **24-Hour / Freshness Filter**: Filter jobs posted strictly in the last 24 hours (`--hours 24`) or last N days (`--days 1`).
-- **Rich Metadata Extraction**: Parses Job Title, Company, Location, Min/Max Experience, Posting Date, and direct application URLs.
-- **Multi-City & Technology Filtering**: Target specific tech hubs (Bangalore, Pune, Hyderabad, Mumbai, Delhi/NCR, Remote, etc.) and skills (Python, DevOps, React, Data Engineer, etc.).
-- **Multiple Formats**: Export directly to `.csv` or `.json`.
-- **GitHub Actions Ready**: Automated daily cron workflow (`06:00 UTC / 11:30 AM IST`) and manual workflow dispatch with downloadable CSV artifacts.
+> 📖 **Architecture & Deep Dive Documentation**: See [ARCHITECTURE.md](ARCHITECTURE.md) for full subsystem breakdowns, data contracts, and technical review.
 
 ---
 
-## 📦 Installation
+## 📁 Streamlined Project Structure
+
+```text
+├── .github/workflows/         # Automated GitHub Actions
+│   ├── naukri_scraper.yml     # Automated daily & dispatch Naukri scraper + TDD test gate
+│   ├── wellfound_scraper.yml  # Wellfound scraper (Dump & Filter) + TDD test gate
+│   ├── test_ambitionbox.yml   # AmbitionBox diagnostic & live extraction
+│   └── test_inc42.yml         # Inc42 startup & corporate enrichment benchmark
+├── data/                      # Designated directory for scraped CSVs and JSONs (gitignored)
+│   └── .gitkeep
+├── naukri_scraper/            # Core package
+│   ├── __init__.py
+│   ├── browser_scraper.py     # Playwright multi-tab browser scraper & live enrichment
+│   ├── cli.py                 # Naukri CLI entrypoint
+│   ├── config.py              # Constants, schemas, and city mappings
+│   ├── exporter.py            # CSV/JSON exporters and company aggregators
+│   ├── inc42_scraper.py       # Inc42 fast async corporate & startup enrichment
+│   ├── parser.py              # Sitemap XML & URL pattern parser
+│   ├── scraper.py             # High-speed XML sitemap stream scraper
+│   ├── wellfound_cli.py       # Wellfound CLI entrypoint
+│   └── wellfound_scraper.py   # Wellfound browser scraper & filter engine
+├── tests/                     # TDD Pytest Suite & Diagnostic Runners
+│   ├── test_ambitionbox.py    # AmbitionBox tests & CLI runner
+│   ├── test_cli.py            # CLI argument parser tests
+│   ├── test_config.py         # Config constants & field validation
+│   ├── test_data_pipeline_dump.py # Full schema & dump verification tests
+│   ├── test_exporter.py       # Aggregator & exporter tests
+│   ├── test_inc42.py          # Inc42 parser tests & benchmark runner
+│   ├── test_naukri_scraper.py # Sitemap decompression & stream tests
+│   ├── test_parser.py         # URL parsing & filter tests
+│   ├── test_scraper_cli.py    # Unified top-level runner tests
+│   └── test_wellfound.py      # Age parsing & Wellfound aggregation tests
+├── scratch/                   # Experimental / scratch scripts (gitignored)
+├── scraper.py                 # Unified top-level CLI runner
+├── requirements.txt           # Consolidated project dependencies
+└── README.md                  # Complete documentation
+```
+
+---
+
+## ⚡ Quick Start
+
+### 1. Installation
 
 ```bash
 # Clone the repository
 git clone https://github.com/Rohanpatel16/naukri-scraper.git
 cd naukri-scraper
 
-# Install Python dependencies
+# Install dependencies (core + testing)
 pip install -r requirements.txt
 
-# Install Playwright browser dependencies (for custom search URLs)
-playwright install chromium
+# Install Playwright browser dependencies (for browser-based scraping)
+python -m playwright install chromium
 ```
 
----
+### 2. Run the Test Suite (TDD Verified)
 
-## 💻 Usage
-
-### 1. Basic Keyword Search
 ```bash
-python scraper.py --keywords python devops
+python -m pytest tests/ -v
 ```
 
-### 2. Scrape from a Custom Search URL (e.g. Engineering/IT in last 24h)
+All unit tests verify schema consistency, age filtering, URL decoding, aggregation logic, and CLI dispatch.
+
+---
+
+## 💻 Unified CLI Usage (`scraper.py`)
+
+The unified top-level runner [`scraper.py`](file:///d:/Codinf%20projets/Naukri.com%20scraper/scraper.py) provides access to all scrapers and diagnostic tools.
+
+### 🔷 1. Naukri Scraper
+
+#### Fast XML Sitemap Stream (No Browser Required):
 ```bash
-python scraper.py --url "https://www.naukri.com/jobs-in-india?functionAreaIdGid=4&functionAreaIdGid=5&functionAreaIdGid=8&jobAge=1&clusters=functionalAreaGid,Freshness" --pages 5 --output fresh_tech_jobs.csv
+python scraper.py --keywords python devops --location Bangalore --experience 3 --hours 24
 ```
 
-### 3. Filter by Location, Experience, and Last 24 Hours
+#### Custom Filter Search URL (Playwright Multi-Tab):
 ```bash
-python scraper.py --keywords "python" "fastapi" --location "Bangalore" --experience 3 --hours 24 --max-jobs 50 --output bangalore_24h.csv
+python scraper.py --url "https://www.naukri.com/jobs-in-india?functionAreaIdGid=4&functionAreaIdGid=5&jobAge=1" --pages 5 --output data/naukri_companies.csv
 ```
 
-### 4. Export to JSON
+#### Strict Inc42 Verification Only:
 ```bash
-python scraper.py --keywords "data engineer" --days 3 --output data_jobs.json
+python scraper.py --url "https://www.naukri.com/jobs-in-india?jobAge=1" --inc42-only
 ```
 
 ---
 
-## ⚙️ Command-Line Options
+### 🔶 2. Wellfound Scraper (Dump & Filter)
 
-| Option | Shorthand | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `--url` | `-u` | Direct custom Naukri search URL to scrape | None |
-| `--pages` | `-p` | Maximum pages to paginate when using `--url` | `5` |
-| `--keywords` | `-k` | One or more keywords to search for | `python` |
-| `--location` | `-l` | City or region filter (e.g., `Bangalore`, `Pune`, `Remote`) | All |
-| `--experience` | `-e` | Candidate experience in years (e.g., `3`) | Any |
-| `--hours` | `-H` | Only include jobs posted in last N hours (e.g. `24`) | All time |
-| `--days` | `-D` | Only include jobs posted in last N days (e.g. `1`, `3`, `7`) | All time |
-| `--max-jobs` | `-n` | Maximum number of matched jobs to collect | `50` |
-| `--max-sitemaps` | `-s` | Number of sitemaps to scan | `5` |
-| `--output` | `-o` | Output file path (`.csv` or `.json`) | `naukri_jobs.csv` |
-| `--verbose` | `-v` | Enable detailed debug output | `False` |
+Scrape jobs and startup profiles from Wellfound:
 
----
+```bash
+# Scrape software engineering jobs in India posted in last 7 days
+python scraper.py wellfound --url "https://wellfound.com/role/l/software-engineer/india" --days 7 --output data/wellfound_companies.csv
+```
 
-## 🐍 Python API Usage
-
-```python
-# Method A: Fast Sitemap Scraper (no browser required)
-from naukri_scraper import NaukriScraper, save_to_csv
-
-scraper = NaukriScraper()
-jobs = scraper.scrape(
-    keywords=["python", "devops"],
-    location="Bangalore",
-    experience=3,
-    hours=24,
-    max_jobs=50
-)
-save_to_csv(jobs, "naukri_jobs.csv")
-
-# Method B: Browser Scraper for Custom Filter URLs
-from naukri_scraper import NaukriBrowserScraper
-
-browser_scraper = NaukriBrowserScraper()
-custom_jobs = browser_scraper.scrape_url(
-    search_url="https://www.naukri.com/jobs-in-india?functionAreaIdGid=4&functionAreaIdGid=5&functionAreaIdGid=8&jobAge=1&clusters=functionalAreaGid,Freshness",
-    max_pages=5,
-    max_jobs=100
-)
-save_to_csv(custom_jobs, "custom_jobs.csv")
+```bash
+# Filter jobs posted in last 24 hours with 4 parallel browser workers
+python scraper.py wellfound --url "https://wellfound.com/jobs?locations=India" --hours 24 --workers 4
 ```
 
 ---
 
-## 🤖 GitHub Actions Setup
+### 🛠 3. Diagnostic & Verification Tools
 
-The automated workflow is located in `.github/workflows/naukri_scraper.yml`.
+Run instant extraction benchmarks on any company or profile:
 
-1. **Daily Runs**: Automatically runs every day at **06:00 UTC (11:30 AM IST)**.
-2. **Manual Dispatch**: Trigger anytime from the **Actions** tab on GitHub:
-   - Provide custom keywords OR paste any custom search URL.
-   - Set location, experience, or time limits.
-3. **Artifacts**: Download the generated `naukri-jobs-csv` directly from the GitHub Actions run summary.
+```bash
+# Test Inc42 corporate & startup extraction
+python scraper.py test inc42 --company "CRED"
+
+# Test AmbitionBox live extraction
+python scraper.py test ambitionbox --url "https://www.ambitionbox.com/overview/tcs-overview"
+```
 
 ---
 
-## 📄 License
-MIT License
+## 🔍 Data Enrichment Pipeline
+
+When scraping Naukri or Wellfound, companies undergo multi-tier automated enrichment:
+
+1. **Inc42 Datalabs (Tier 0)**: Direct slug generation & fast async parsing for Indian tech startups (official website, LinkedIn, founders, founding year, funding stage, total funding, revenue).
+2. **AmbitionBox (Tier 1)**: Concurrent browser tabs extracting ratings, employee counts, industry tags, and websites.
+3. **DuckDuckGo Search (Tier 2)**: Targeted domain searches for unlisted or custom corporate names.
+4. **Clearbit Autocomplete (Tier 3)**: Fast API lookup for corporate domain names.
+
+---
+
+## 🤖 GitHub Actions Automation
+
+Automated scheduled workflows are configured in `.github/workflows/`:
+
+| Workflow | Triggers | Description |
+| :--- | :--- | :--- |
+| **`Naukri Job Scraper`** | Daily at `06:00 UTC` / Manual Dispatch | Runs automated test gate, scrapes Naukri, enriches companies, and uploads CSV artifacts. |
+| **`Wellfound Job Scraper`** | Manual Dispatch | Runs test gate, performs Dump & Filter scraping on Wellfound, and exports enriched CSVs. |
+| **`Test AmbitionBox`** | Manual Dispatch | Diagnostic testing for AmbitionBox parsing. |
+| **`Test Inc42`** | Manual Dispatch | Benchmark extraction test for Indian startup profiles on Inc42. |
+
+All workflow runs enforce the **TDD test gate (`pytest tests/`)** before executing scrapers.

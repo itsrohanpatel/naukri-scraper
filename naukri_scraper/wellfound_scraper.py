@@ -8,7 +8,7 @@ import logging
 import re
 import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from playwright.async_api import BrowserContext, Page, async_playwright
@@ -89,7 +89,7 @@ def parse_posted_age_days(text: str) -> float:
 def clean_company_name_for_search(company_name: str) -> str:
     clean = re.sub(r"\(.*?\)", "", company_name)
     clean = re.sub(
-        r"\b(pvt\.?|private|ltd\.?|limited|llc|inc\.?|corp\.?|corporation|group|services|enterprises|technologies|solutions)\b",
+        r"\b(pvt\.?|private|ltd\.?|limited|llc|inc\.?|corp\.?|corporation|group|services|enterprises|technologies|solutions|software)\b",
         "",
         clean,
         flags=re.IGNORECASE,
@@ -212,9 +212,9 @@ def _extract_raw_jobs_from_html(html: str, base_url: str, page_number: int = 1) 
             card = card.parent
             jobs = card.find_all("a", href=re.compile(r"^/jobs/\d+"))
             other_comps = [
-                l.get("href")
-                for l in card.find_all("a", href=re.compile(r"^/company/[^/]+$"))
-                if l.get("href") != slug
+                comp_link.get("href")
+                for comp_link in card.find_all("a", href=re.compile(r"^/company/[^/]+$"))
+                if comp_link.get("href") != slug
             ]
             if jobs and len(other_comps) == 0:
                 found_card = card
@@ -225,7 +225,6 @@ def _extract_raw_jobs_from_html(html: str, base_url: str, page_number: int = 1) 
 
         emp_count = ""
         stage = ""
-        tagline = ""
 
         if found_card:
             emp_el = found_card.find(string=re.compile(r"\d+[\d,]*\s*[–-]\s*\d+\s*Employees?|\d+\s*Employees?", re.I))
@@ -533,7 +532,7 @@ class WellfoundScraper:
         # ==========================================
         # PHASE 3: DYNAMIC LIVE ENRICHMENT
         # ==========================================
-        print(f"\n[*] Pure dynamic live enrichment (DuckDuckGo + LinkedIn + Clearbit)...", flush=True)
+        print("\n[*] Pure dynamic live enrichment (DuckDuckGo + LinkedIn + Clearbit)...", flush=True)
         print(f"[INFO] Enriching {len(unique_companies_list)} unique companies with Websites and LinkedIn URLs...", flush=True)
 
         sem = asyncio.Semaphore(6)

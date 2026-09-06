@@ -41,6 +41,10 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
+      - name: Run Test Suite (TDD Gate)
+        run: |
+          python -m pytest tests/ -v
+
       - name: Run Wellfound Scraper (Dump & Filter)
         run: |
           URL="${{ github.event.inputs.url }}"

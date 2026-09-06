@@ -17,6 +17,7 @@ def aggregate_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     comp_map: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
         "company_name": "",
         "company_website": "",
+        "company_linkedin": "",
         "total_jobs_posted": 0,
         "job_titles": [],
         "naukri_job_urls": [],
@@ -28,6 +29,12 @@ def aggregate_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         "company_reviews_count": "",
         "ambition_box_url": "",
         "latest_posted_date": "",
+        "headquarters": "",
+        "founders": "",
+        "founding_year": "",
+        "company_stage": "",
+        "total_funding": "",
+        "revenue": "",
     })
 
     for job in jobs:
@@ -39,6 +46,20 @@ def aggregate_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         c["company_name"] = cname
         if job.get("company_website") and not c["company_website"]:
             c["company_website"] = job["company_website"].strip()
+        if job.get("company_linkedin") and not c["company_linkedin"]:
+            c["company_linkedin"] = job["company_linkedin"].strip()
+        if job.get("headquarters") and not c["headquarters"]:
+            c["headquarters"] = job["headquarters"].strip()
+        if job.get("founders") and not c["founders"]:
+            c["founders"] = job["founders"] if isinstance(job["founders"], str) else ", ".join(job["founders"])
+        if job.get("founding_year") and not c["founding_year"]:
+            c["founding_year"] = str(job["founding_year"]).strip()
+        if job.get("company_stage") and not c["company_stage"]:
+            c["company_stage"] = job["company_stage"].strip()
+        if job.get("total_funding") and not c["total_funding"]:
+            c["total_funding"] = job["total_funding"].strip()
+        if job.get("revenue") and not c["revenue"]:
+            c["revenue"] = job["revenue"].strip()
 
         c["total_jobs_posted"] += 1
 
@@ -91,6 +112,7 @@ def aggregate_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         result.append({
             "company_name": c["company_name"],
             "company_website": c["company_website"],
+            "company_linkedin": c["company_linkedin"],
             "total_jobs_posted": c["total_jobs_posted"],
             "job_titles": " | ".join(c["job_titles"]),
             "naukri_job_urls": " | ".join(c["naukri_job_urls"]),
@@ -102,6 +124,12 @@ def aggregate_companies(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "company_reviews_count": c["company_reviews_count"],
             "ambition_box_url": c["ambition_box_url"],
             "latest_posted_date": c["latest_posted_date"],
+            "headquarters": c["headquarters"],
+            "founders": c["founders"],
+            "founding_year": c["founding_year"],
+            "company_stage": c["company_stage"],
+            "total_funding": c["total_funding"],
+            "revenue": c["revenue"],
         })
 
     return result
