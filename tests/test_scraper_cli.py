@@ -24,3 +24,13 @@ def test_scraper_wellfound_help():
     assert res.returncode == 0
     assert "wellfound" in res.stdout.lower()
 
+
+def test_scraper_linkedin_help():
+    res = subprocess.run(
+        [sys.executable, "scraper.py", "linkedin", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0
+    assert "linkedin" in res.stdout.lower()
+

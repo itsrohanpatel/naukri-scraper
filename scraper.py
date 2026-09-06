@@ -9,7 +9,11 @@ Usage:
     # 2. Wellfound Scraper
     python scraper.py wellfound --url "https://wellfound.com/role/l/software-engineer/india" --days 7
 
-    # 3. Diagnostic & Verification Tools
+    # 3. LinkedIn Scraper
+    python scraper.py linkedin --keywords python devops --location India --days 3
+    python scraper.py linkedin --url "<linkedin_search_url>"
+
+    # 4. Diagnostic & Verification Tools
     python scraper.py test inc42 --company "Zepto"
     python scraper.py test ambitionbox --url "<ambitionbox_url>"
 """
@@ -64,6 +68,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         print(f"\n[+] Saved {len(companies)} companies to: {out_path.resolve()}\n")
         return 0
+
+    elif argv and argv[0].lower() == "linkedin":
+        from naukri_scraper.linkedin_cli import main as linkedin_main
+        return linkedin_main(argv[1:])
 
     elif argv and argv[0].lower() == "naukri":
         from naukri_scraper.cli import main as naukri_main

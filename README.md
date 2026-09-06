@@ -1,6 +1,6 @@
-# 🚀 Job Scraper Suite (Naukri & Wellfound)
+# 🚀 Job Scraper Suite (Naukri, Wellfound & LinkedIn)
 
-A production-grade, anti-bot resilient scraping and company enrichment system for **[Naukri.com](https://www.naukri.com)** and **[Wellfound.com](https://wellfound.com)** with multi-tier corporate verification via **Inc42**, **AmbitionBox**, and **Clearbit**.
+A production-grade, anti-bot resilient scraping and company enrichment system for **[Naukri.com](https://www.naukri.com)**, **[Wellfound.com](https://wellfound.com)**, and **[LinkedIn](https://www.linkedin.com)** with multi-tier corporate verification via **Inc42**, **AmbitionBox**, and **Clearbit**.
 
 > 📖 **Architecture & Deep Dive Documentation**: See [ARCHITECTURE.md](ARCHITECTURE.md) for full subsystem breakdowns, data contracts, and technical review.
 
@@ -111,7 +111,24 @@ python scraper.py wellfound --url "https://wellfound.com/jobs?locations=India" -
 
 ---
 
-### 🛠 3. Diagnostic & Verification Tools
+### 💼 3. LinkedIn Scraper (Fast Guest API & Browser Fallback)
+
+Scrape jobs and enterprise hiring data from LinkedIn with **two-tier date limit filtering**:
+
+```bash
+# Scrape Python developer jobs in India posted in last 3 days
+python scraper.py linkedin --keywords "python developer" --location "India" --days 3 --max-jobs 50
+
+# Scrape DevOps roles in Bangalore posted in the last 24 hours
+python scraper.py linkedin --keywords "devops" --location "Bangalore" --hours 24 --max-jobs 25
+
+# Scrape from a custom LinkedIn search URL using Playwright browser
+python scraper.py linkedin --url "https://www.linkedin.com/jobs/search?keywords=React&location=India" --browser
+```
+
+---
+
+### 🛠 4. Diagnostic & Verification Tools
 
 Run instant extraction benchmarks on any company or profile:
 
