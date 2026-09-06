@@ -310,7 +310,7 @@ async def extract_inc42_company_data(
 
 async def batch_enrich_inc42(
     company_names: List[str],
-    concurrency: int = 8,
+    concurrency: int = 4,
     use_ddgs_fallback: bool = False,
 ) -> Dict[str, Dict[str, Any]]:
     """Enriches a batch of unique company names concurrently via Inc42."""

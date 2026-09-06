@@ -109,7 +109,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.days:
         time_filter_str = f"Last {args.days} Days"
 
-    kw_display = " ".join(args.keywords) if args.keywords else "Software Engineer"
+    kw_display = " ".join(args.keywords) if args.keywords else "All Roles (Unfiltered)"
     print(f"[*] Target Keywords : {kw_display}")
     print(f"[*] Location Filter : {args.location or 'India'}")
     print(f"[*] Time Limit      : {time_filter_str}")

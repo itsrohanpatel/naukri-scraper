@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
+import time
 import urllib.parse
 from typing import Any, Dict, List, Optional
 
@@ -169,8 +171,8 @@ class LinkedInScraper:
         hours: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Scrape LinkedIn jobs via the fast public Guest API without browser overhead."""
-        kw_str = " ".join(keywords) if keywords else "Software Engineer"
-        loc_str = location or "India"
+        kw_str = " ".join(keywords) if keywords else ""
+        primary_loc = location or "India"
         tpr_seconds = self.get_f_tpr_seconds(days=days, hours=hours)
 
         max_allowed_age_days: Optional[float] = None
@@ -181,37 +183,73 @@ class LinkedInScraper:
 
         jobs: List[Dict[str, Any]] = []
         seen_urls = set()
-        start = 0
+
+        # Build list of locations to search (if target > 500 and location is India, fallback to top tech cities when offset limit is reached)
+        locations_to_query = [primary_loc]
+        if max_jobs > 500 and primary_loc.strip().lower() in ["india", ""]:
+            locations_to_query.extend([
+                "Bengaluru, Karnataka, India",
+                "Mumbai, Maharashtra, India",
+                "Delhi, India",
+                "Hyderabad, Telangana, India",
+                "Pune, Maharashtra, India",
+                "Chennai, Tamil Nadu, India",
+                "Gurgaon, Haryana, India",
+                "Noida, Uttar Pradesh, India",
+            ])
 
         logger.info(
             "Querying LinkedIn Guest API: keywords='%s', location='%s', f_TPR=%s, target_max=%d",
-            kw_str,
-            loc_str,
+            kw_str or "(None/All Roles)",
+            primary_loc,
             tpr_seconds,
             max_jobs,
         )
 
         with httpx.Client(headers=self.headers, timeout=self.timeout, follow_redirects=True) as client:
-            while len(jobs) < max_jobs:
-                params: Dict[str, Any] = {
-                    "keywords": kw_str,
-                    "location": loc_str,
-                    "start": start,
-                }
-                if tpr_seconds:
-                    params["f_TPR"] = f"r{tpr_seconds}"
+            for loc in locations_to_query:
+                if len(jobs) >= max_jobs:
+                    break
 
-                try:
-                    resp = client.get(LINKEDIN_GUEST_API_URL, params=params)
-                    if resp.status_code != 200:
-                        logger.warning("LinkedIn Guest API returned status %d at start=%d", resp.status_code, start)
+                start = 0
+                consecutive_empty = 0
+
+                while len(jobs) < max_jobs and start <= 980:
+                    params: Dict[str, Any] = {
+                        "location": loc,
+                        "start": start,
+                    }
+                    if kw_str:
+                        params["keywords"] = kw_str
+                    if tpr_seconds:
+                        params["f_TPR"] = f"r{tpr_seconds}"
+
+                    resp = None
+                    for attempt in range(4):
+                        try:
+                            resp = client.get(LINKEDIN_GUEST_API_URL, params=params)
+                            if resp.status_code == 429:
+                                backoff = 4.0 * (attempt + 1)
+                                logger.warning("LinkedIn rate-limited (429) at start=%d. Sleeping %.1fs before retry...", start, backoff)
+                                time.sleep(backoff)
+                                continue
+                            break
+                        except Exception as exc:
+                            logger.debug("Request exception on attempt %d: %s", attempt, exc)
+                            time.sleep(2.0)
+
+                    if not resp or resp.status_code != 200:
+                        logger.debug("LinkedIn Guest API non-200 (%s) for '%s' at start=%d", getattr(resp, "status_code", "None"), loc, start)
                         break
 
                     soup = BeautifulSoup(resp.text, "html.parser")
                     card_elems = soup.find_all("li")
                     if not card_elems:
-                        logger.info("No more job cards returned from LinkedIn at start=%d", start)
-                        break
+                        consecutive_empty += 1
+                        if consecutive_empty >= 3:
+                            break
+                        start += 10
+                        continue
 
                     added_in_batch = 0
                     for card in card_elems:
@@ -232,12 +270,16 @@ class LinkedInScraper:
                             break
 
                     if added_in_batch == 0:
-                        break
+                        consecutive_empty += 1
+                        if consecutive_empty >= 4:
+                            break
+                    else:
+                        consecutive_empty = 0
+                        if len(jobs) % 50 < 10 or len(jobs) == max_jobs:
+                            print(f"  [+] Progress: {len(jobs):,}/{max_jobs:,} LinkedIn jobs collected (Location: {loc.split(',')[0]})...", flush=True)
 
-                    start += 25
-                except Exception as exc:
-                    logger.error("Error fetching LinkedIn Guest API batch: %s", exc)
-                    break
+                    start += max(len(card_elems), 10)
+                    time.sleep(random.uniform(0.7, 1.2))  # Respectful jittered delay to prevent 429s
 
         return jobs
 
@@ -342,9 +384,12 @@ class LinkedInScraper:
     ) -> List[Dict[str, Any]]:
         """Main scraping entrypoint dispatching between Guest API and Playwright browser."""
         if use_browser or url:
-            search_url = url or (
-                f"https://www.linkedin.com/jobs/search?keywords={urllib.parse.quote_plus(' '.join(keywords or ['Software Engineer']))}&location={urllib.parse.quote_plus(location or 'India')}"
-            )
+            if url:
+                search_url = url
+            else:
+                kw_part = f"keywords={urllib.parse.quote_plus(' '.join(keywords))}&" if keywords else ""
+                loc_part = f"location={urllib.parse.quote_plus(location or 'India')}"
+                search_url = f"https://www.linkedin.com/jobs/search?{kw_part}{loc_part}"
             jobs = asyncio.run(self.scrape_browser_async(search_url, max_jobs=max_jobs, days=days, hours=hours))
         else:
             jobs = self.scrape_guest_api(
@@ -360,7 +405,7 @@ class LinkedInScraper:
         return jobs
 
     def _enrich_jobs(self, jobs: List[Dict[str, Any]]) -> None:
-        """Enrich company domains and metadata using Inc42, Clearbit, and DuckDuckGo."""
+        """Enrich company domains and metadata using Inc42 and cached lookups."""
         from .browser_scraper import search_company_website_ddgs_sync
         from .inc42_scraper import batch_enrich_inc42
 
@@ -377,13 +422,31 @@ class LinkedInScraper:
             logger.debug("Inc42 enrichment error: %s", exc)
             inc42_results = {}
 
-        # 3. Apply results & fall back to Clearbit/DDGS
+        # 3. Cache website resolutions per company
+        website_cache: Dict[str, str] = {}
+        for cname_lower, info in inc42_results.items():
+            if info.get("company_website"):
+                website_cache[cname_lower] = info["company_website"]
+
+        # Only use DDGS fallback for up to 25 remaining unique companies to prevent DDG rate limits
+        missing_comps = [c for c in unique_companies if c.lower() not in website_cache]
+        if len(missing_comps) <= 25:
+            for c in missing_comps:
+                try:
+                    site = search_company_website_ddgs_sync(c)
+                    if site:
+                        website_cache[c.lower()] = site
+                except Exception:
+                    pass
+
+        # 4. Apply results to jobs
         for j in jobs:
             cname = j.get("company", "").strip()
             if not cname:
                 continue
+            c_key = cname.lower()
 
-            info = inc42_results.get(cname.lower(), {})
+            info = inc42_results.get(c_key, {})
             if info:
                 j["company_website"] = info.get("company_website", "")
                 if not j.get("company_linkedin") and info.get("company_linkedin"):
@@ -395,11 +458,5 @@ class LinkedInScraper:
                 j["total_funding"] = info.get("total_funding", "")
                 j["revenue"] = info.get("revenue", "")
 
-            # If still no website, fallback to DDGS
-            if not j.get("company_website"):
-                try:
-                    site = search_company_website_ddgs_sync(cname)
-                    if site:
-                        j["company_website"] = site
-                except Exception:
-                    pass
+            if not j.get("company_website") and c_key in website_cache:
+                j["company_website"] = website_cache[c_key]
