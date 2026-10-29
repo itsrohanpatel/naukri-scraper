@@ -206,19 +206,21 @@ def crawl_contact_pages(client: httpx.Client, website_url: str) -> Tuple[List[st
             if not first_contact_url and path in {"/contact", "/contact-us", "/about"}:
                 first_contact_url = target_url
 
-            # 1. Parse mailto: links via BeautifulSoup
-            try:
-                soup = BeautifulSoup(content_text, "html.parser")
-                for mailto in soup.select('a[href^="mailto:"]'):
-                    href = mailto.get("href", "")
-                    raw_email = href.replace("mailto:", "").split("?")[0].strip()
-                    cleaned = clean_and_validate_email(raw_email, domain)
-                    if cleaned:
-                        found_emails.add(cleaned)
-                        if not first_contact_url:
-                            first_contact_url = target_url
-            except Exception:
-                pass
+            # 1. Parse mailto: links via BeautifulSoup if HTML
+            if "<" in content_text:
+                try:
+                    soup = BeautifulSoup(content_text, "html.parser")
+                    for mailto in soup.select('a[href^="mailto:"]'):
+                        href = mailto.get("href", "")
+                        raw_email = href.replace("mailto:", "").split("?")[0].strip()
+                        cleaned = clean_and_validate_email(raw_email, domain)
+                        if cleaned:
+                            found_emails.add(cleaned)
+                            if not first_contact_url:
+                                first_contact_url = target_url
+                except Exception:
+                    pass
+
 
             # 2. Text regex scan
             matches = EMAIL_REGEX.findall(content_text)
