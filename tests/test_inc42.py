@@ -82,15 +82,16 @@ def test_parse_inc42_html_mock():
 # CLI Diagnostic Runner (Used by GitHub Actions & Local testing)
 # =====================================================================
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Test Inc42 company data extraction.")
     parser.add_argument("--company", type=str, help="Company name to test (e.g. 'Tigi HR')")
     parser.add_argument("--url", type=str, help="Direct Inc42 URL to test")
     parser.add_argument("--test-suite", action="store_true", help="Run benchmark suite")
     parser.add_argument("--no-ddgs", action="store_true", help="Disable DDGS fallback")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     company = args.company or "Tigi HR"
+
     print(f"[*] Testing Inc42 extraction for company: {company}")
 
     async def _run():

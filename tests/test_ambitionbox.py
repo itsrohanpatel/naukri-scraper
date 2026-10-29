@@ -8,6 +8,8 @@ import json
 import re
 from typing import Any, Dict
 
+import pytest
+
 
 
 def parse_ambitionbox_html(html_text: str) -> Dict[str, Any]:
@@ -122,14 +124,32 @@ async def run_ambitionbox_live(url: str):
             await browser.close()
 
 
-def main():
+@pytest.mark.asyncio
+async def test_dynamic_extract_clearbit_non_dict_elements():
+    """Verify that Clearbit parser handles unexpected non-dict items in list without raising AttributeError."""
+    from unittest.mock import AsyncMock, MagicMock
+    from naukri_scraper.browser_scraper import dynamic_extract_clearbit
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = ["unexpected_string_element"]  # non-dict inside list
+    mock_client.get = AsyncMock(return_value=mock_resp)
+
+    sem = asyncio.Semaphore(1)
+    name, domain = await dynamic_extract_clearbit(mock_client, "TestCo", sem)
+    assert name == "TestCo"
+    assert domain == ""
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Test AmbitionBox company extraction")
     parser.add_argument(
         "--url",
         default="https://www.ambitionbox.com/overview/tcs-overview",
         help="AmbitionBox overview or review URL",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     clean_url = args.url.strip()
     if "/reviews/" in clean_url:
         clean_url = re.sub(r"/reviews/([a-zA-Z0-9_-]+)-reviews", r"/overview/\1-overview", clean_url.split("?")[0])
@@ -138,3 +158,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

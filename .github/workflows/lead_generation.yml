@@ -1,0 +1,85 @@
+name: B2B Lead Generation Engine
+
+on:
+  schedule:
+    # Runs daily at 07:00 UTC (12:30 PM IST)
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Scraping source to generate leads from'
+        required: true
+        type: choice
+        options:
+          - naukri
+          - linkedin
+          - wellfound
+        default: 'naukri'
+      keywords:
+        description: 'Job keywords to target (e.g. python devops)'
+        required: false
+        default: 'python devops'
+      location:
+        description: 'Target location'
+        required: false
+        default: 'India'
+      max_jobs:
+        description: 'Maximum jobs to collect before enrichment'
+        required: false
+        default: '50'
+
+jobs:
+  lead-generation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run Test Suite (Quality Gate)
+        run: |
+          python -m pytest tests/ -v
+
+      - name: Run Lead Generation Engine
+        run: |
+          mkdir -p data
+          SOURCE="${{ github.event.inputs.source || 'naukri' }}"
+          KEYWORDS="${{ github.event.inputs.keywords || 'python devops' }}"
+          LOCATION="${{ github.event.inputs.location || 'India' }}"
+          MAX_JOBS="${{ github.event.inputs.max_jobs || '50' }}"
+
+          echo "Generating B2B leads from $SOURCE (Keywords: $KEYWORDS, Location: $LOCATION)..."
+
+          if [ "$SOURCE" = "naukri" ]; then
+            python scraper.py naukri --keywords $KEYWORDS --location "$LOCATION" --max-jobs $MAX_JOBS --leads --output data/naukri_companies.csv --leads-output data/leads.csv
+          elif [ "$SOURCE" = "linkedin" ]; then
+            python scraper.py linkedin --keywords $KEYWORDS --location "$LOCATION" --max-jobs $MAX_JOBS --output data/linkedin_companies.csv
+            python scraper.py leads -i data/linkedin_companies.csv -o data/leads.csv
+          elif [ "$SOURCE" = "wellfound" ]; then
+            python scraper.py wellfound --keywords $KEYWORDS --output data/wellfound_companies.csv
+            python scraper.py leads -i data/wellfound_companies.csv -o data/leads.csv
+          fi
+
+      - name: Upload B2B Leads Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verified-b2b-leads
+          path: |
+            data/leads.csv
+            data/leads.json
+            data/*_companies.csv
+          retention-days: 30

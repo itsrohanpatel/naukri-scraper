@@ -10,6 +10,7 @@ A production-grade, anti-bot resilient scraping and company enrichment system fo
 
 ```text
 ├── .github/workflows/         # Automated GitHub Actions
+│   ├── lead_generation.yml    # Automated daily B2B lead generation & email verification
 │   ├── naukri_scraper.yml     # Automated daily & dispatch Naukri scraper + TDD test gate
 │   ├── wellfound_scraper.yml  # Wellfound scraper (Dump & Filter) + TDD test gate
 │   ├── test_ambitionbox.yml   # AmbitionBox diagnostic & live extraction
@@ -23,6 +24,10 @@ A production-grade, anti-bot resilient scraping and company enrichment system fo
 │   ├── config.py              # Constants, schemas, and city mappings
 │   ├── exporter.py            # CSV/JSON exporters and company aggregators
 │   ├── inc42_scraper.py       # Inc42 fast async corporate & startup enrichment
+│   ├── lead_cli.py            # B2B Lead Generation CLI entrypoint
+│   ├── lead_enricher.py       # DoH MX verifier, contact crawler & email permutation engine
+│   ├── linkedin_cli.py        # LinkedIn CLI entrypoint
+│   ├── linkedin_scraper.py    # LinkedIn Guest API & browser scraper with date limits
 │   ├── parser.py              # Sitemap XML & URL pattern parser
 │   ├── scraper.py             # High-speed XML sitemap stream scraper
 │   ├── wellfound_cli.py       # Wellfound CLI entrypoint
@@ -34,6 +39,8 @@ A production-grade, anti-bot resilient scraping and company enrichment system fo
 │   ├── test_data_pipeline_dump.py # Full schema & dump verification tests
 │   ├── test_exporter.py       # Aggregator & exporter tests
 │   ├── test_inc42.py          # Inc42 parser tests & benchmark runner
+│   ├── test_lead_enricher.py  # DoH MX, contact crawl & permutation tests
+│   ├── test_linkedin.py       # LinkedIn card parser, date limit & pagination tests
 │   ├── test_naukri_scraper.py # Sitemap decompression & stream tests
 │   ├── test_parser.py         # URL parsing & filter tests
 │   ├── test_scraper_cli.py    # Unified top-level runner tests
@@ -128,7 +135,29 @@ python scraper.py linkedin --url "https://www.linkedin.com/jobs/search?keywords=
 
 ---
 
-### 🛠 4. Diagnostic & Verification Tools
+### 🎯 4. Automated B2B Lead Generation Engine
+
+Transform raw job postings and corporate profiles into **verified, deliverable B2B leads** with **zero new dependencies** and **100% runnable in GitHub Actions**:
+
+- **DoH MX Inbound Verification**: Queries Cloudflare & Google DNS-over-HTTPS (port 443) to verify active email hosting (Google Workspace, Microsoft 365, Zoho) with zero blocked port 25 timeouts.
+- **Targeted Public Crawl**: Discovers direct team emails from `/contact`, `/about`, `/team`, `/privacy-policy` (GDPR mandatory DPO emails), and `/.well-known/security.txt`.
+- **Decision-Maker Permutations**: Generates verified candidate email formats (`first@domain`, `first.last@domain`, `f.last@domain`) for founders and leadership.
+- **Hiring Intent Signals**: Automatically categorizes open positions into high-converting sales triggers (*AI & Machine Learning*, *Cloud & Infrastructure*, *Sales & GTM Growth*).
+
+```bash
+# 1. Direct domain inspection & founder permutations
+python scraper.py leads --domain razorpay.com --founders "Harshil Mathur, Shashank Kumar"
+
+# 2. Enrich scraped company list into verified leads
+python scraper.py leads -i data/naukri_companies.csv -o data/leads.csv
+
+# 3. End-to-end scrape + lead generation in one command
+python scraper.py --keywords "python devops" --location Bangalore --leads --leads-output data/leads.csv
+```
+
+---
+
+### 🛠 5. Diagnostic & Verification Tools
 
 Run instant extraction benchmarks on any company or profile:
 
@@ -150,6 +179,7 @@ When scraping Naukri or Wellfound, companies undergo multi-tier automated enrich
 2. **AmbitionBox (Tier 1)**: Concurrent browser tabs extracting ratings, employee counts, industry tags, and websites.
 3. **DuckDuckGo Search (Tier 2)**: Targeted domain searches for unlisted or custom corporate names.
 4. **Clearbit Autocomplete (Tier 3)**: Fast API lookup for corporate domain names.
+5. **DoH & Public Crawler (Lead Tier)**: Port-443 MX validation, targeted contact crawl, email permutations, and hiring intent tagging.
 
 ---
 
@@ -159,6 +189,7 @@ Automated scheduled workflows are configured in `.github/workflows/`:
 
 | Workflow | Triggers | Description |
 | :--- | :--- | :--- |
+| **`B2B Lead Generation Engine`** | Daily at `07:00 UTC` / Manual Dispatch | Scrapes target roles, verifies MX inboxes over DoH, crawls contacts, and uploads `data/leads.csv`. |
 | **`Naukri Job Scraper`** | Daily at `06:00 UTC` / Manual Dispatch | Runs automated test gate, scrapes Naukri, enriches companies, and uploads CSV artifacts. |
 | **`Wellfound Job Scraper`** | Manual Dispatch | Runs test gate, performs Dump & Filter scraping on Wellfound, and exports enriched CSVs. |
 | **`Test AmbitionBox`** | Manual Dispatch | Diagnostic testing for AmbitionBox parsing. |

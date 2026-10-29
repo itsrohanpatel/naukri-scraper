@@ -137,6 +137,16 @@ def parse_linkedin_card_html(card: Tag) -> Optional[Dict[str, Any]]:
     }
 
 
+def _run_coroutine_safely(coro: Any) -> Any:
+    """Execute coroutine safely whether an asyncio loop is already running or not."""
+    try:
+        return asyncio.run(coro)
+    except RuntimeError:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(asyncio.run, coro).result()
+
+
 class LinkedInScraper:
     """High-performance scraper for LinkedIn job listings with date limits & company enrichment."""
 
@@ -322,6 +332,8 @@ class LinkedInScraper:
                 user_agent=self.headers["User-Agent"],
                 viewport={"width": 1280, "height": 800},
             )
+            # Mask navigator.webdriver for anti-bot evasion
+            await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
             page = await context.new_page()
 
             try:
@@ -390,7 +402,7 @@ class LinkedInScraper:
                 kw_part = f"keywords={urllib.parse.quote_plus(' '.join(keywords))}&" if keywords else ""
                 loc_part = f"location={urllib.parse.quote_plus(location or 'India')}"
                 search_url = f"https://www.linkedin.com/jobs/search?{kw_part}{loc_part}"
-            jobs = asyncio.run(self.scrape_browser_async(search_url, max_jobs=max_jobs, days=days, hours=hours))
+            jobs = _run_coroutine_safely(self.scrape_browser_async(search_url, max_jobs=max_jobs, days=days, hours=hours))
         else:
             jobs = self.scrape_guest_api(
                 keywords=keywords,
@@ -416,7 +428,7 @@ class LinkedInScraper:
 
         # 2. Run Inc42 corporate & startup enrichment
         try:
-            inc42_raw = asyncio.run(batch_enrich_inc42(unique_companies))
+            inc42_raw = _run_coroutine_safely(batch_enrich_inc42(unique_companies))
             inc42_results = {k.lower(): v for k, v in inc42_raw.items()}
         except Exception as exc:
             logger.debug("Inc42 enrichment error: %s", exc)
@@ -430,14 +442,14 @@ class LinkedInScraper:
 
         # Only use DDGS fallback for up to 25 remaining unique companies to prevent DDG rate limits
         missing_comps = [c for c in unique_companies if c.lower() not in website_cache]
-        if len(missing_comps) <= 25:
-            for c in missing_comps:
-                try:
-                    site = search_company_website_ddgs_sync(c)
-                    if site:
-                        website_cache[c.lower()] = site
-                except Exception:
-                    pass
+        for c in missing_comps[:25]:
+            try:
+                site = search_company_website_ddgs_sync(c)
+                if site:
+                    website_cache[c.lower()] = site
+            except Exception:
+                pass
+
 
         # 4. Apply results to jobs
         for j in jobs:

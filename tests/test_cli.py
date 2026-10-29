@@ -36,3 +36,9 @@ def test_wellfound_cli_args():
     assert args.days == 7
     assert args.workers == 4
     assert args.output == "wf.csv"
+
+
+def test_naukri_cli_leads_args():
+    args = parse_naukri_args(["--leads", "--leads-output", "data/custom_leads.csv"])
+    assert args.leads is True
+    assert args.leads_output == "data/custom_leads.csv"

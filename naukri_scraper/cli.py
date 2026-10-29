@@ -114,6 +114,16 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Verify companies strictly using Inc42 only (bypasses AmbitionBox, DuckDuckGo generic search, and Clearbit)",
     )
     parser.add_argument(
+        "--leads",
+        action="store_true",
+        help="Run B2B lead generation engine to discover verified emails and hiring intent signals",
+    )
+    parser.add_argument(
+        "--leads-output",
+        default="data/leads.csv",
+        help="Output filepath for generated leads when --leads is used (default: data/leads.csv)",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable detailed debug logs",
@@ -205,6 +215,16 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print(f"\n[+] Enriched Jobs saved to      : {jobs_out_path.resolve()}")
     print(f"[+] Company Profiles saved to   : {out_path.resolve()}\n")
+
+    if args.leads and companies_data:
+        from .lead_enricher import enrich_companies_to_leads, save_leads_to_csv, save_leads_to_json
+        print("[*] Generating B2B Leads with DoH MX verification and contact discovery...")
+        leads = enrich_companies_to_leads(companies_data)
+        if args.leads_output.endswith(".json"):
+            leads_path = save_leads_to_json(leads, args.leads_output)
+        else:
+            leads_path = save_leads_to_csv(leads, args.leads_output)
+        print(f"[+] Verified Leads saved to     : {leads_path.resolve()}\n")
 
     # Display preview of top 5 companies
     print("Top Hiring Companies Preview:")

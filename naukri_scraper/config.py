@@ -135,3 +135,22 @@ COMPANY_FIELDS = [
     "revenue",
 ]
 
+LEAD_FIELDS = [
+    "company_name",
+    "company_website",
+    "company_domain",
+    "mx_verified",
+    "mx_provider",
+    "emails_found",
+    "lead_email_candidates",
+    "contact_page_url",
+    "founders",
+    "headquarters",
+    "company_stage",
+    "total_funding",
+    "hiring_intent_signals",
+    "open_roles_count",
+    "sample_job_titles",
+]
+
+

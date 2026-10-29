@@ -91,3 +91,86 @@ def test_linkedin_calculate_f_tpr_param():
     assert scraper.get_f_tpr_seconds(days=1) == 86400
     assert scraper.get_f_tpr_seconds(hours=12) == 43200
     assert scraper.get_f_tpr_seconds(days=None, hours=None) is None
+
+
+def test_linkedin_enrich_ddgs_fallback_slice_boundary():
+    """Verify that when >25 companies are missing websites, up to 25 are still queried via DDGS."""
+    from unittest.mock import patch
+
+    scraper = LinkedInScraper()
+    # Create 30 unique companies
+    jobs = [{"company": f"Company {i}", "company_website": "", "url": f"https://linkedin.com/jobs/view/{i}"} for i in range(30)]
+
+    queried_companies = []
+
+    def mock_ddgs(name: str):
+        queried_companies.append(name)
+        return f"https://{name.lower().replace(' ', '')}.com"
+
+    with patch("naukri_scraper.inc42_scraper.batch_enrich_inc42", return_value={}):
+        with patch("naukri_scraper.browser_scraper.search_company_website_ddgs_sync", side_effect=mock_ddgs):
+            scraper._enrich_jobs(jobs)
+
+    # In current buggy code, len(missing_comps) > 25 causes 0 queries. Expected: 25.
+    assert len(queried_companies) == 25
+    # First 25 jobs should have their website enriched
+    resolved_count = sum(1 for j in jobs if j.get("company_website"))
+    assert resolved_count == 25
+
+
+def test_linkedin_scrape_inside_running_loop():
+    """Verify calling LinkedInScraper.scrape from within an existing event loop does not throw RuntimeError."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    scraper = LinkedInScraper()
+
+    async def run_in_loop():
+        with patch.object(scraper, "scrape_browser_async", new_callable=AsyncMock) as mock_browser:
+            mock_browser.return_value = [{"company": "Zepto", "url": "https://linkedin.com/1"}]
+            with patch("naukri_scraper.inc42_scraper.batch_enrich_inc42", new_callable=AsyncMock) as mock_inc42:
+                mock_inc42.return_value = {}
+                return scraper.scrape(url="https://linkedin.com/jobs/search?keywords=python", max_jobs=1)
+
+    result = asyncio.run(run_in_loop())
+    assert len(result) == 1
+    assert result[0]["company"] == "Zepto"
+
+
+def test_linkedin_scrape_guest_api_pagination_and_limit():
+    """Verify scrape_guest_api paginates and strictly respects max_jobs limit."""
+    from unittest.mock import MagicMock, patch
+
+    scraper = LinkedInScraper()
+
+    # Generate 15 cards per mock response
+    card_template = """
+    <li>
+        <a class="base-card__full-link" href="https://linkedin.com/jobs/view/job-{id}"></a>
+        <h3 class="base-search-card__title">Title {id}</h3>
+        <h4 class="base-search-card__subtitle">Company {id}</h4>
+        <span class="job-search-card__location">Bangalore</span>
+        <time datetime="2026-10-28">1 day ago</time>
+    </li>
+    """
+
+    def mock_get(url, params=None):
+        start = (params or {}).get("start", 0)
+        html = "".join(card_template.format(id=start + i) for i in range(15))
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.text = f"<ul>{html}</ul>"
+        return resp
+
+    with patch("httpx.Client") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.get.side_effect = mock_get
+        mock_client_cls.return_value = mock_client
+
+        jobs = scraper.scrape_guest_api(keywords=["python"], max_jobs=25)
+
+        assert len(jobs) == 25
+        assert jobs[0]["job_id"] == "0"
+        assert jobs[24]["job_id"] == "24"
+

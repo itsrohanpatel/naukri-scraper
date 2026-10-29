@@ -150,7 +150,7 @@ async def dynamic_extract_clearbit(
                     resp = await client.get(url, headers=headers, timeout=5.0)
                     if resp.status_code == 200:
                         data = resp.json()
-                        if isinstance(data, list) and len(data) > 0:
+                        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                             domain = data[0].get("domain", "").strip()
                             if domain:
                                 web = f"https://{domain}" if not domain.startswith("http") else domain

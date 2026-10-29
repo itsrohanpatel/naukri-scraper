@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .config import COMPANY_FIELDS, JOB_FIELDS
+from .config import COMPANY_FIELDS, JOB_FIELDS, LEAD_FIELDS
 
 logger = logging.getLogger(__name__)
 
@@ -187,3 +187,31 @@ def save_companies_to_json(companies: List[Dict[str, Any]], filename: str = "nau
 
     logger.info("Saved %d unique companies to JSON: %s", len(companies), path.resolve())
     return path
+
+
+def save_leads_to_csv(leads: List[Dict[str, Any]], filename: str = "data/leads.csv") -> Path:
+    """Save a list of verified lead dicts to a CSV file."""
+    path = Path(filename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=LEAD_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        for lead in leads:
+            writer.writerow(lead)
+
+    logger.info("Saved %d leads to CSV: %s", len(leads), path.resolve())
+    return path
+
+
+def save_leads_to_json(leads: List[Dict[str, Any]], filename: str = "data/leads.json") -> Path:
+    """Save a list of verified lead dicts to a JSON file."""
+    path = Path(filename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(leads, f, indent=2, ensure_ascii=False)
+
+    logger.info("Saved %d leads to JSON: %s", len(leads), path.resolve())
+    return path
+
