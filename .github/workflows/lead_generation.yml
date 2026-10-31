@@ -82,4 +82,5 @@ jobs:
             data/leads.csv
             data/leads.json
             data/*_companies.csv
+          if-no-files-found: ignore
           retention-days: 30

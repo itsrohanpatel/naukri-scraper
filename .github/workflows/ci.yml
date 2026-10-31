@@ -1,0 +1,45 @@
+name: Continuous Integration & Quality Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Pytest & Quality Gate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run Test Suite
+        run: |
+          python -m pytest tests/ -v
+
+      - name: Smoke Test CLI Commands
+        run: |
+          python scraper.py --help
+          python scraper.py leads --help
+          python scraper.py naukri --help
+          python scraper.py linkedin --help
+          python scraper.py wellfound --help
+          python scraper.py leads --domain razorpay.com

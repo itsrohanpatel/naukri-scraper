@@ -124,20 +124,22 @@ async def run_ambitionbox_live(url: str):
             await browser.close()
 
 
-@pytest.mark.asyncio
-async def test_dynamic_extract_clearbit_non_dict_elements():
+def test_dynamic_extract_clearbit_non_dict_elements():
     """Verify that Clearbit parser handles unexpected non-dict items in list without raising AttributeError."""
     from unittest.mock import AsyncMock, MagicMock
     from naukri_scraper.browser_scraper import dynamic_extract_clearbit
 
-    mock_client = MagicMock()
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = ["unexpected_string_element"]  # non-dict inside list
-    mock_client.get = AsyncMock(return_value=mock_resp)
+    async def _run():
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = ["unexpected_string_element"]  # non-dict inside list
+        mock_client.get = AsyncMock(return_value=mock_resp)
 
-    sem = asyncio.Semaphore(1)
-    name, domain = await dynamic_extract_clearbit(mock_client, "TestCo", sem)
+        sem = asyncio.Semaphore(1)
+        return await dynamic_extract_clearbit(mock_client, "TestCo", sem)
+
+    name, domain = asyncio.run(_run())
     assert name == "TestCo"
     assert domain == ""
 
