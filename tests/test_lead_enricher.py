@@ -33,6 +33,48 @@ def test_resolve_company_domain():
     assert resolve_company_domain("", mock_client) == ""
 
 
+def test_resolve_company_domain_ddgs_fallback():
+    """Verify that when Clearbit returns empty, DDGS search is invoked as a fallback."""
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = []  # Clearbit returns empty
+    mock_client.get.return_value = mock_resp
+
+    with patch("naukri_scraper.lead_enricher.search_ddgs_domain") as mock_ddgs:
+        mock_ddgs.return_value = "infosys.com"
+        domain = resolve_company_domain("Pan India Infosys", mock_client)
+        assert domain == "infosys.com"
+        mock_ddgs.assert_called_once()
+
+
+def test_resolve_company_domain_filters_job_boards_and_social():
+    """Verify that DDGS results filter out social networks, directories, and job boards."""
+    from naukri_scraper.lead_enricher import search_ddgs_domain
+
+    mock_results = [
+        {"href": "https://www.linkedin.com/company/infosys"},
+        {"href": "https://www.naukri.com/infosys-jobs"},
+        {"href": "https://www.ambitionbox.com/reviews/infosys-reviews"},
+        {"href": "https://en.wikipedia.org/wiki/Infosys"},
+        {"href": "https://www.infosys.com/about-us.html"},
+    ]
+
+    with patch("naukri_scraper.lead_enricher.get_ddgs_results", return_value=mock_results):
+        domain = search_ddgs_domain("Infosys")
+        assert domain == "infosys.com"
+
+
+def test_clean_company_name_for_domain_search():
+    """Verify noise patterns (locations, corporate suffixes) are cleaned from names."""
+    from naukri_scraper.lead_enricher import clean_company_name_for_domain_search
+
+    assert "infosys" in clean_company_name_for_domain_search("Pan India Infosys").lower()
+    assert "clover" in clean_company_name_for_domain_search("Clover Infotech Mumbai All Areas").lower()
+    assert "deloitte" in clean_company_name_for_domain_search("Us India Offices Deloitte").lower()
+    assert clean_company_name_for_domain_search("Razorpay Software Private Limited").strip().lower() == "razorpay"
+
+
 def test_extract_domain():
     assert extract_domain("https://www.example.com/about?ref=naukri") == "example.com"
     assert extract_domain("http://tech.startup.in/") == "tech.startup.in"

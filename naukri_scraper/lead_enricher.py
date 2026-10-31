@@ -300,20 +300,92 @@ def tag_hiring_intent(job_titles: Any) -> List[str]:
     return signals
 
 
-def resolve_company_domain(company_name: str, client: Optional[httpx.Client] = None) -> str:
-    """Resolve base domain from company name using fast Clearbit autocomplete (zero API key)."""
+# Domains to exclude when searching for official company website
+EXCLUDE_SEARCH_DOMAINS = [
+    "linkedin.com", "facebook.com", "twitter.com", "x.com", "instagram.com", "youtube.com",
+    "glassdoor", "ambitionbox", "naukri", "indeed", "zaubacorp", "tofler", "crunchbase",
+    "zoominfo", "owler", "wikipedia.org", "justdial.com", "indiamart.com", "tradeindia.com",
+    "tracxn.com", "companydetails.in", "bing.com", "google.com", "github.com", "play.google.com"
+]
+
+
+def clean_company_name_for_domain_search(company_name: str) -> str:
+    """Clean company names by stripping common Indian job-board noise, location prefixes/suffixes, and corporate suffixes."""
     if not company_name or not isinstance(company_name, str):
         return ""
 
-    clean_name = re.sub(
-        r"\b(pvt|ltd|limited|llc|inc|corp|services|technologies|private)\b",
+    clean = re.sub(r"\(.*?\)", "", company_name)
+    # Strip location prefixes & noisy job-board location suffixes
+    clean = re.sub(
+        r"\b(pan\s+india|all\s+areas|india|us\s+india\s+offices|us\s+offices|shared\s+services\s+india|anywhere\s+in\s+india)\b",
         "",
-        company_name,
+        clean,
         flags=re.IGNORECASE,
-    ).strip()
-    if not clean_name:
-        clean_name = company_name.strip()
+    )
+    # Strip common city noise attached to company names
+    clean = re.sub(
+        r"\b(faridabad|mumbai|bengaluru|bangalore|hyderabad|pune|delhi\s+ncr|delhi|gurugram|gurgaon|chennai|kolkata|noida|coimbatore|thane|navi\s+mumbai)\b",
+        "",
+        clean,
+        flags=re.IGNORECASE,
+    )
+    # Strip corporate entity suffixes
+    clean = re.sub(
+        r"\b(pvt\.?|private|ltd\.?|limited|llc|inc\.?|corp\.?|corporation|group|services|enterprises|technologies|technology|solutions|software)\b",
+        "",
+        clean,
+        flags=re.IGNORECASE,
+    )
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean if len(clean) >= 2 else company_name.strip()
 
+
+def get_ddgs_results(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Helper to query DDGS for text results."""
+    try:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
+    except ImportError:
+        return []
+
+    try:
+        with DDGS(timeout=4) as ddgs:
+            return list(ddgs.text(query, max_results=max_results))
+    except Exception as e:
+        logger.debug("DDGS search error for '%s': %s", query, e)
+        return []
+
+
+def search_ddgs_domain(company_name: str) -> str:
+    """Uses DuckDuckGo search to discover the official company domain when Clearbit misses."""
+    clean_name = clean_company_name_for_domain_search(company_name)
+    if not clean_name:
+        return ""
+
+    query = f"{clean_name} official website"
+    results = get_ddgs_results(query, max_results=5)
+    for r in results:
+        url = (r.get("href") or r.get("url") or "").strip()
+        if not url:
+            continue
+        if any(ex in url.lower() for ex in EXCLUDE_SEARCH_DOMAINS):
+            continue
+        domain = extract_domain(url)
+        if domain and "." in domain and not any(ex in domain.lower() for ex in EXCLUDE_SEARCH_DOMAINS):
+            return domain
+    return ""
+
+
+def resolve_company_domain(company_name: str, client: Optional[httpx.Client] = None, use_ddgs: bool = True) -> str:
+    """Resolve base domain from company name using fast Clearbit autocomplete with DDGS search fallback."""
+    if not company_name or not isinstance(company_name, str):
+        return ""
+
+    clean_name = clean_company_name_for_domain_search(company_name)
+
+    # 1. Try Clearbit Autocomplete first (fastest, zero-browser)
     try:
         url = f"https://autocomplete.clearbit.com/v1/companies/suggest?query={clean_name}"
         c = client if client is not None else httpx
@@ -321,9 +393,19 @@ def resolve_company_domain(company_name: str, client: Optional[httpx.Client] = N
         if resp.status_code == 200:
             data = resp.json()
             if isinstance(data, list) and data and isinstance(data[0], dict) and data[0].get("domain"):
-                return data[0]["domain"].lower().strip()
+                raw_domain = data[0]["domain"].lower().strip()
+                extracted = extract_domain(raw_domain) or raw_domain
+                if extracted and "." in extracted:
+                    return extracted
     except Exception:
         pass
+
+    # 2. Fallback to DDGS search
+    if use_ddgs:
+        ddgs_domain = search_ddgs_domain(clean_name or company_name)
+        if ddgs_domain:
+            return ddgs_domain
+
     return ""
 
 
